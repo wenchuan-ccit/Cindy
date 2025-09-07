@@ -31,15 +31,18 @@
         <header class="w-full text-center mb-6">
             <h1 class="text-3xl font-bold text-gray-800">國小四年級數學(康軒版)-吳佳芮專用</h1>
             <p class="mt-2 text-xl text-gray-600">第一單元：一億以內的數</p>
-            <div id="user-info" class="mt-4 text-center text-gray-500 text-sm">
-                <!-- User info will be displayed here -->
-            </div>
         </header>
 
-        <!-- Loading Indicator -->
-        <div id="loading-spinner" class="flex flex-col items-center justify-center space-y-4">
-            <div class="animate-spin rounded-full h-16 w-16 border-t-2 border-b-2 border-blue-500"></div>
-            <p class="text-gray-600">載入中...</p>
+        <!-- Main Menu -->
+        <div id="main-menu" class="w-full space-y-4">
+            <div class="w-full bg-blue-500 text-white p-4 rounded-lg text-center font-semibold">
+                單元進度
+            </div>
+
+            <!-- Sections List -->
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <!-- Section cards will be rendered here -->
+            </div>
         </div>
 
         <!-- Section View (Dynamically rendered) -->
@@ -54,22 +57,10 @@
             <div id="quiz-container" class="space-y-4">
                 <!-- Quiz questions will be rendered here -->
             </div>
+            <div id="quiz-feedback-message" class="text-center mt-4 text-gray-700 font-semibold"></div>
             <button id="submit-quiz" class="mt-6 w-full px-4 py-3 bg-green-500 text-white font-bold rounded-lg hover:bg-green-600 focus:outline-none focus:ring-2 focus:ring-green-400 transition">
                 送出答案
             </button>
-        </div>
-
-        <!-- Main Menu -->
-        <div id="main-menu" class="w-full space-y-4 hidden">
-            <!-- Removed points display -->
-            <div class="w-full bg-blue-500 text-white p-4 rounded-lg text-center font-semibold">
-                單元進度
-            </div>
-
-            <!-- Sections List -->
-            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <!-- Section cards will be rendered here -->
-            </div>
         </div>
     </div>
 
@@ -84,28 +75,14 @@
         </div>
     </div>
 
-    <!-- Firebase Imports -->
-    <script type="module">
-        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
-        import { getAuth, signInWithCustomToken, signInAnonymously, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
-        import { getFirestore, doc, setDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
-
-        // Global variables provided by the environment
-        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
-        const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : {};
-        const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
-
-        let app, db, auth, userId;
+    <script>
+        // User data and quiz history are now stored in memory and not persistent
         let userData = { unlockedSections: ['section1'], quizHistory: {} };
         let currentQuiz = [];
         let currentSectionId = null;
 
         // UI elements
-        const appElement = document.getElementById('app');
-        const loadingSpinner = document.getElementById('loading-spinner');
         const mainMenu = document.getElementById('main-menu');
-        const userPointsElement = document.getElementById('user-points');
-        const userInfoElement = document.getElementById('user-info');
         const sectionListElement = document.querySelector('#main-menu .grid');
         const sectionView = document.getElementById('section-view');
         const conceptExplanation = document.getElementById('concept-explanation');
@@ -116,6 +93,7 @@
         const modalTitle = document.getElementById('modal-title');
         const modalMessage = document.getElementById('modal-message');
         const modalCloseBtn = document.getElementById('modal-close');
+        const quizFeedbackMessage = document.getElementById('quiz-feedback-message');
 
         // Quiz and concept data
         const sectionsData = {
@@ -255,10 +233,8 @@
 
         // UI Rendering Logic
         function renderMainMenu() {
-            loadingSpinner.classList.add('hidden');
             mainMenu.classList.remove('hidden');
             sectionView.classList.add('hidden');
-            userInfoElement.textContent = `使用者ID: ${userId}`;
 
             sectionListElement.innerHTML = '';
             const sectionKeys = Object.keys(sectionsData);
@@ -299,6 +275,7 @@
             sectionView.classList.remove('hidden');
 
             conceptExplanation.innerHTML = section.concept;
+            quizFeedbackMessage.textContent = ''; // Clear feedback message on new section
 
             // Select 20 random questions for the quiz
             const shuffledQuestions = [...section.questions].sort(() => 0.5 - Math.random());
@@ -364,17 +341,16 @@
                 }
             });
 
-            let message = `測驗完成！你答對了 ${correctCount} 題。`;
-            let title = '測驗結果';
-            
-            // Check for section completion
-            const nextSectionId = getNextSectionId(currentSectionId);
             const isCompleted = correctCount === currentQuiz.length;
-
+            
             if (isCompleted) {
                 // Mark this section as completed
                 if (!userData.quizHistory) { userData.quizHistory = {}; }
                 userData.quizHistory[currentSectionId] = true;
+
+                const nextSectionId = getNextSectionId(currentSectionId);
+                let message = `測驗完成！你答對了 ${correctCount} 題。`;
+                let title = '測驗結果';
 
                 if (nextSectionId) {
                     // Automatically add the next section to unlockedSections
@@ -385,12 +361,12 @@
                 } else {
                     message += `\n太棒了！你已通關本單元所有小節！`;
                 }
+                
+                showModal(title, message);
+                quizFeedbackMessage.textContent = '';
             } else {
-                message += `\n請再接再厲，必須全對才能解鎖下一關喔！`;
+                quizFeedbackMessage.textContent = `你答對了 ${correctCount} 題，請再試一次。`;
             }
-
-            saveUserData();
-            showModal(title, message);
         }
 
         function getNextSectionId(currentId) {
@@ -412,45 +388,7 @@
         function hideModal() {
             modal.classList.add('hidden');
             modal.classList.remove('flex');
-        }
-
-        // Firebase Functions
-        function startDataListener(uid) {
-            const userDocRef = doc(db, `artifacts/${appId}/users/${uid}/math_progress`, 'user_data');
-            
-            // onSnapshot provides real-time updates
-            onSnapshot(userDocRef, (docSnap) => {
-                if (docSnap.exists()) {
-                    // Data exists, update userData and render UI
-                    const data = docSnap.data();
-                    // Ensure unlockedSections and quizHistory are always present
-                    userData.unlockedSections = data.unlockedSections || ['section1'];
-                    userData.quizHistory = data.quizHistory || {};
-                    console.log("User data loaded/updated:", userData);
-                } else {
-                    // No data, create a new document with initial data
-                    console.log("No user data found, creating new document.");
-                    setDoc(userDocRef, userData).catch(error => console.error("Error creating document:", error));
-                }
-                // Render UI after data is loaded for the first time
-                renderMainMenu();
-                loadingSpinner.classList.add('hidden');
-            }, (error) => {
-                console.error("Error listening to user data:", error);
-                loadingSpinner.classList.add('hidden');
-                showModal('錯誤', '載入資料失敗，請稍後再試。');
-            });
-        }
-
-        async function saveUserData() {
-            try {
-                const userDocRef = doc(db, `artifacts/${appId}/users/${userId}/math_progress`, 'user_data');
-                await setDoc(userDocRef, userData);
-                console.log("User data saved successfully.");
-            } catch (error) {
-                console.error("Error saving user data:", error);
-                showModal('錯誤', '儲存資料失敗，請稍後再試。');
-            }
+            renderMainMenu();
         }
 
         // Event Listeners
@@ -460,30 +398,7 @@
 
         // Initialization
         window.onload = function() {
-            try {
-                app = initializeApp(firebaseConfig);
-                auth = getAuth(app);
-                db = getFirestore(app);
-
-                onAuthStateChanged(auth, async (user) => {
-                    if (user) {
-                        userId = user.uid;
-                        startDataListener(userId);
-                    } else {
-                        // Not signed in, sign in anonymously or with custom token
-                        if (initialAuthToken) {
-                             await signInWithCustomToken(auth, initialAuthToken);
-                        } else {
-                             await signInAnonymously(auth);
-                        }
-                    }
-                });
-
-            } catch (error) {
-                console.error("Firebase initialization or authentication failed:", error);
-                loadingSpinner.classList.add('hidden');
-                showModal('錯誤', '初始化應用程式失敗。');
-            }
+            renderMainMenu();
         };
     </script>
 </body>
