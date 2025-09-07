@@ -1,0 +1,490 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>國小四年級數學：一億以內的數</title>
+    <!-- Inter font from Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+        }
+        .bg-gradient-math {
+            background: linear-gradient(to bottom right, #f0f9ff, #e0f2fe);
+        }
+        .card-shadow {
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+        }
+    </style>
+</head>
+<body class="bg-gradient-math min-h-screen flex items-center justify-center p-4">
+
+    <!-- Main Container -->
+    <div id="app" class="w-full max-w-2xl bg-white rounded-xl card-shadow p-8 flex flex-col items-center">
+
+        <!-- Header -->
+        <header class="w-full text-center mb-6">
+            <h1 class="text-3xl font-bold text-gray-800">國小四年級數學(康軒版)-吳佳芮專用</h1>
+            <p class="mt-2 text-xl text-gray-600">第一單元：一億以內的數</p>
+            <div id="user-info" class="mt-4 text-center text-gray-500 text-sm">
+                <!-- User info will be displayed here -->
+            </div>
+        </header>
+
+        <!-- Loading Indicator -->
+        <div id="loading-spinner" class="flex flex-col items-center justify-center space-y-4">
+            <div class="animate-spin rounded-full h-16 w-16 border-t-2 border-b-2 border-blue-500"></div>
+            <p class="text-gray-600">載入中...</p>
+        </div>
+
+        <!-- Section View (Dynamically rendered) -->
+        <div id="section-view" class="w-full hidden">
+            <!-- Content for the currently selected section -->
+            <button id="back-to-menu" class="mb-4 px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 focus:outline-none focus:ring-2 focus:ring-blue-400 transition">
+                返回目錄
+            </button>
+            <div id="concept-explanation" class="bg-blue-100 p-6 rounded-lg mb-6">
+                <!-- Concept explanation will be rendered here -->
+            </div>
+            <div id="quiz-container" class="space-y-4">
+                <!-- Quiz questions will be rendered here -->
+            </div>
+            <button id="submit-quiz" class="mt-6 w-full px-4 py-3 bg-green-500 text-white font-bold rounded-lg hover:bg-green-600 focus:outline-none focus:ring-2 focus:ring-green-400 transition">
+                送出答案
+            </button>
+        </div>
+
+        <!-- Main Menu -->
+        <div id="main-menu" class="w-full space-y-4 hidden">
+            <!-- Removed points display -->
+            <div class="w-full bg-blue-500 text-white p-4 rounded-lg text-center font-semibold">
+                單元進度
+            </div>
+
+            <!-- Sections List -->
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <!-- Section cards will be rendered here -->
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal for feedback -->
+    <div id="modal" class="fixed inset-0 bg-black bg-opacity-50 hidden items-center justify-center p-4">
+        <div class="bg-white p-6 rounded-lg shadow-lg max-w-sm w-full text-center">
+            <h3 id="modal-title" class="text-xl font-bold mb-2"></h3>
+            <p id="modal-message" class="text-gray-700"></p>
+            <button id="modal-close" class="mt-4 px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600">
+                確定
+            </button>
+        </div>
+    </div>
+
+    <!-- Firebase Imports -->
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInWithCustomToken, signInAnonymously, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, doc, setDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+        // Global variables provided by the environment
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+        const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : {};
+        const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
+
+        let app, db, auth, userId;
+        let userData = { unlockedSections: ['section1'], quizHistory: {} };
+        let currentQuiz = [];
+        let currentSectionId = null;
+
+        // UI elements
+        const appElement = document.getElementById('app');
+        const loadingSpinner = document.getElementById('loading-spinner');
+        const mainMenu = document.getElementById('main-menu');
+        const userPointsElement = document.getElementById('user-points');
+        const userInfoElement = document.getElementById('user-info');
+        const sectionListElement = document.querySelector('#main-menu .grid');
+        const sectionView = document.getElementById('section-view');
+        const conceptExplanation = document.getElementById('concept-explanation');
+        const quizContainer = document.getElementById('quiz-container');
+        const submitQuizBtn = document.getElementById('submit-quiz');
+        const backToMenuBtn = document.getElementById('back-to-menu');
+        const modal = document.getElementById('modal');
+        const modalTitle = document.getElementById('modal-title');
+        const modalMessage = document.getElementById('modal-message');
+        const modalCloseBtn = document.getElementById('modal-close');
+
+        // Quiz and concept data
+        const sectionsData = {
+            'section1': {
+                title: '十萬以內的數',
+                concept: `
+                    <h3 class="font-semibold text-lg mb-2">觀念解說</h3>
+                    <ul class="list-disc list-inside space-y-2 text-left">
+                        <li><b>認識位值：</b>從個位、十位、百位、千位到萬位、十萬位，理解每個位值代表的意義。</li>
+                        <li><b>讀和寫數：</b>學習如何正確讀出和寫出十萬以內的數。特別注意中間有 0 的情況，例如 70,502 讀作「七萬零五百零二」。</li>
+                        <li><b>數字的意義：</b>理解一個數字在不同位值上的意義，例如在 34,567 中，5 代表五個百。</li>
+                    </ul>
+                `,
+                questions: [
+                    { q: '下列哪一個數字是「八萬零七」？', options: ['87000', '80070', '80007', '80700'], correct: '80007' },
+                    { q: '用數字寫出「六萬三千四百一十九」：', type: 'input', correct: '63419' },
+                    { q: '35,821 中的 8 代表幾個百？', type: 'input', correct: '8' },
+                    { q: '20,500 讀作？', options: ['兩萬五百', '兩萬五千', '兩萬零五', '兩千五百'], correct: '兩萬五百' },
+                    { q: '下列數字由大到小排序，第四個數字是？<br>72,500, 72,050, 70,520, 75,020', type: 'input', correct: '70520' },
+                    { q: '一個遊樂園賣出 92,548 張門票，請問這個數字讀作？', type: 'input', correct: '九萬二千五百四十八' },
+                    { q: '「六萬零六」用數字寫出來是？', type: 'input', correct: '60006' },
+                    { q: '「三萬二千三百」用數字寫出來是？', type: 'input', correct: '32300' },
+                    { q: '「一萬」有幾個「千」？', type: 'input', correct: '10' },
+                    { q: '「九千九百九十九」再多 1 是多少？', type: 'input', correct: '10000' },
+                    { q: '72,831 中的 7 在哪一位？', options: ['個位', '百位', '千位', '萬位'], correct: '萬位' },
+                    { q: '89,999 + 1 = ?', type: 'input', correct: '90000' },
+                    { q: '12,345 - 2,345 = ?', type: 'input', correct: '10000' },
+                    { q: '由小到大排序：65,432, 56,789, 65,342, 56,879。第二個數字是？', type: 'input', correct: '56879' },
+                    { q: '「四萬零四十」用數字寫出來是？', type: 'input', correct: '40040' },
+                    { q: '數字 5,000 比 4,999 多 1，正確嗎？', options: ['正確', '錯誤'], correct: '正確' },
+                    { q: '28,000 等於 280 個「百」嗎？', options: ['是', '否'], correct: '是' },
+                    { q: '一萬元的鈔票，可以換幾個一千元的？', type: 'input', correct: '10' },
+                    { q: '「兩萬零六百零二」用數字寫出來是？', type: 'input', correct: '20602' },
+                    { q: '將 98,765 讀作「九萬八千七百六十五」，正確嗎？', options: ['正確', '錯誤'], correct: '正確' },
+                ]
+            },
+            'section2': {
+                title: '一億以內的數',
+                concept: `
+                    <h3 class="font-semibold text-lg mb-2">觀念解說</h3>
+                    <ul class="list-disc list-inside space-y-2 text-left">
+                        <li><b>認識更大的位值：</b>從萬位、十萬位、百萬位、千萬位到億位。</li>
+                        <li><b>讀和寫數：</b>運用分節法，例如 12,345,678 讀作「一千二百三十四萬五千六百七十八」。</li>
+                        <li><b>位值和數字的關係：</b>理解在 45,678,912 中，4567 是一個「萬」的單位，代表四千五百六十七萬。</li>
+                    </ul>
+                `,
+                questions: [
+                    { q: '下列哪一個數字是「九千三百萬零八十」？', options: ['93000080', '93008000', '9300080', '93080000'], correct: '93000080' },
+                    { q: '一千萬有幾個十萬？', type: 'input', correct: '100' },
+                    { q: '用數字寫出「三千五百六十八萬四千九百」：', type: 'input', correct: '35684900' },
+                    { q: '太陽到地球的平均距離約為一億五千萬公里，請問這個數字用數字寫出來是？', type: 'input', correct: '150000000' },
+                    { q: '「五千零六十萬」和「五千六百萬」一樣大，正確嗎？', options: ['正確', '錯誤'], correct: '錯誤' },
+                    { q: '100,000,000 讀作？', options: ['一千萬', '十億', '一億', '一千萬零一'], correct: '一億' },
+                    { q: '「四千零三萬」用數字寫出來是？', type: 'input', correct: '40030000' },
+                    { q: '在 82,045,679 中，2 在哪一位？', options: ['百萬位', '千萬位', '十萬位', '萬位'], correct: '百萬位' },
+                    { q: '一億是幾千萬？', type: 'input', correct: '10' },
+                    { q: '用數字寫出「七億零一十萬」：', type: 'input', correct: '700100000' },
+                    { q: '下列哪一個數值最大？', options: ['9999999', '10000000', '99999999', '100000000'], correct: '100000000' },
+                    { q: '「六千五百萬」用數字寫出來是？', type: 'input', correct: '65000000' },
+                    { q: '「八千零七百二十萬」用數字寫出來是？', type: 'input', correct: '80720000' },
+                    { q: '「一億」有幾個「萬」？', type: 'input', correct: '10000' },
+                    { q: '5,000,000 讀作？', options: ['五千萬', '五百萬', '五十萬', '五萬'], correct: '五百萬' },
+                    { q: '「三億五千萬」用數字寫出來是？', type: 'input', correct: '350000000' },
+                    { q: '「十億」有幾個「億」？', type: 'input', correct: '10' },
+                    { q: '「一億」是幾萬個「十」？', type: 'input', correct: '10000000' },
+                    { q: '「九千九百九十九萬」再多 1 是多少？', type: 'input', correct: '100000000' },
+                    { q: '「二千零五萬」用數字寫出來是？', type: 'input', correct: '20050000' },
+                ]
+            },
+            'section3': {
+                title: '數的大小比較',
+                concept: `
+                    <h3 class="font-semibold text-lg mb-2">觀念解說</h3>
+                    <ul class="list-disc list-inside space-y-2 text-left">
+                        <li><b>位數比較法：</b>數字位數越多，數值越大。例如：9999 < 10000。</li>
+                        <li><b>同位數比較法：</b>當位數相同時，從最高位開始，由左至右逐位比較。當某一位的數字較大時，該數就較大。</li>
+                        <li><b>綜合應用：</b>練習多個大數的排序。</li>
+                    </ul>
+                `,
+                questions: [
+                    { q: '下列哪一個數字最大？', options: ['85,900,000', '8,590,000', '859,000', '859,000,000'], correct: '859,000,000' },
+                    { q: '填入 > 或 <：45,678,912 __ 45,679,112', type: 'input', correct: '<' },
+                    { q: '填入 >、< 或 =：78,000,000 __ 7800萬', type: 'input', correct: '=' },
+                    { q: '由小到大排列，第三個數字是？<br>99,888, 9,998,888, 10,000,000, 999,888', type: 'input', correct: '999888' },
+                    { q: '甲國人口數是 2,548,760 人，乙國人口數是 2,584,760 人。哪一國人口比較多？', options: ['甲國', '乙國'], correct: '乙國' },
+                    { q: '下列哪個數字比 75,000,000 大，但比 80,000,000 小？', options: ['74,999,999', '80,000,001', '76,500,000', '74,999,999'], correct: '76,500,000' },
+                    { q: '比 9,999,999 大的數是？', options: ['9,999,998', '1,000,000', '10,000,000', '99,999'], correct: '10,000,000' },
+                    { q: '將 1,234,567 和 1,234,657 比較，哪一個數字較大？', options: ['1,234,567', '1,234,657'], correct: '1,234,657' },
+                    { q: '填入 < 或 >：5,678,901 __ 5,678,900', type: 'input', correct: '>' },
+                    { q: '「兩百萬」和「二十萬」哪一個大？', options: ['兩百萬', '二十萬'], correct: '兩百萬' },
+                    { q: '由大到小排列，第一個數字是？<br>88,888,888, 88,888,880, 88,888,000, 88,880,000', type: 'input', correct: '88888888' },
+                    { q: '「六千三百零四萬」和「六千三百四十萬」哪一個小？', options: ['六千三百零四萬', '六千三百四十萬'], correct: '六千三百零四萬' },
+                    { q: '89,123,456 和 89,213,456 哪一個數字較大？', options: ['89,123,456', '89,213,456'], correct: '89,213,456' },
+                    { q: '填入 > 或 <：3,000,000 __ 2,999,999', type: 'input', correct: '>' },
+                    { q: '在 12,345,678 中，1 在千萬位上，代表一千萬，正確嗎？', options: ['正確', '錯誤'], correct: '正確' },
+                    { q: '「99,999,999」比「一億」小，正確嗎？', options: ['正確', '錯誤'], correct: '正確' },
+                    { q: '將 587,654,321 讀作「五億八千七百六十五萬四千三百二十一」，正確嗎？', options: ['正確', '錯誤'], correct: '正確' },
+                    { q: '「三千零一萬」和「三百零一萬」哪一個大？', options: ['三千零一萬', '三百零一萬'], correct: '三千零一萬' },
+                    { q: '填入 < 或 >：100,000,000 __ 99,999,999', type: 'input', correct: '>' },
+                    { q: '由小到大排序：487,654, 487,645, 487,564, 487,546。第四個數字是？', type: 'input', correct: '487654' },
+                ]
+            },
+            'section4': {
+                title: '大數的加減',
+                concept: `
+                    <h3 class="font-semibold text-lg mb-2">觀念解說</h3>
+                    <ul class="list-disc list-inside space-y-2 text-left">
+                        <li><b>直式加減法：</b>大數的加減法與小數的運算方式相同，最重要的是將數字的<b>位值對齊</b>。</li>
+                        <li><b>退位和進位：</b>練習加法中的進位（滿十進一）和減法中的退位（借十還一）。</li>
+                        <li><b>估算：</b>介紹如何透過估算來檢驗答案的合理性。</li>
+                    </ul>
+                `,
+                questions: [
+                    { q: '4,567,890 + 3,210,010 = ?', type: 'input', correct: '7777900' },
+                    { q: '98,765,432 - 12,345,678 = ?', type: 'input', correct: '86419754' },
+                    { q: '某公司去年賺了 58,760,000 元，今年比去年多賺了 12,500,000 元。請問今年賺了多少錢？', type: 'input', correct: '71260000' },
+                    { q: '一個數字加上 2,500,000 後等於 5,000,000，請問這個數字是多少？', type: 'input', correct: '2500000' },
+                    { q: '某城市去年底人口數 3,456,789 人，今年新出生 50,123 人，死亡 25,678 人。請問今年底人口數？', type: 'input', correct: '3481234' },
+                    { q: '小明家買房子，總價是 12,568,000 元，頭期款繳 5,000,000 元。剩下款項大約是多少元？(概數到百萬位)', type: 'input', correct: '8000000' },
+                    { q: '88,888,888 + 1,111,112 = ?', type: 'input', correct: '90000000' },
+                    { q: '100,000,000 - 1 = ?', type: 'input', correct: '99999999' },
+                    { q: '12,345,678 + 98,765,432 = ?', type: 'input', correct: '111111110' },
+                    { q: '5,000,000 - 2,500,000 = ?', type: 'input', correct: '2500000' },
+                    { q: '一本書的定價是 15,000 元，打折後便宜 2,500 元。打折後價格是多少？', type: 'input', correct: '12500' },
+                    { q: '900,000 - 876,543 = ?', type: 'input', correct: '23457' },
+                    { q: '67,890,123 + 12,345,678 = ?', type: 'input', correct: '80235801' },
+                    { q: '某公司今年營收 8,500,000 元，比去年多 1,200,000 元，請問去年營收多少？', type: 'input', correct: '7300000' },
+                    { q: '1,234,567 + 765,433 = ?', type: 'input', correct: '2000000' },
+                    { q: '8,000,000 - 5,678,901 = ?', type: 'input', correct: '2321099' },
+                    { q: '「六千萬」減掉「五千九百萬」等於？', type: 'input', correct: '1000000' },
+                    { q: '66,666,666 + 33,333,333 = ?', type: 'input', correct: '99999999' },
+                    { q: '一個數減掉 1,000,000 後得到 9,000,000，請問這個數是多少？', type: 'input', correct: '10000000' },
+                    { q: '小明有 12,345 元，他媽媽給他 8,765 元，他總共有多少錢？', type: 'input', correct: '21110' },
+                ]
+            }
+        };
+
+        // UI Rendering Logic
+        function renderMainMenu() {
+            loadingSpinner.classList.add('hidden');
+            mainMenu.classList.remove('hidden');
+            sectionView.classList.add('hidden');
+            userInfoElement.textContent = `使用者ID: ${userId}`;
+
+            sectionListElement.innerHTML = '';
+            const sectionKeys = Object.keys(sectionsData);
+            sectionKeys.forEach((id, index) => {
+                const isLocked = index > 0 && !(userData.quizHistory && userData.quizHistory[sectionKeys[index - 1]]);
+                const isCompleted = userData.quizHistory && userData.quizHistory[id];
+                const card = document.createElement('div');
+                card.classList.add('p-6', 'rounded-lg', 'transition', 'cursor-pointer', 'card-shadow');
+
+                // Correctly add classes based on lock status
+                if (isLocked) {
+                    card.classList.add('bg-gray-200', 'text-gray-400');
+                } else {
+                    card.classList.add('bg-green-100', 'text-green-800', 'hover:bg-green-200');
+                }
+                
+                card.innerHTML = `
+                    <h4 class="text-xl font-semibold">${sectionsData[id].title}</h4>
+                    <p class="mt-2 text-sm">${isLocked ? `需完成前一小節才能解鎖` : '已解鎖'}</p>
+                    ${isCompleted ? '<span class="mt-2 inline-block px-2 py-1 text-xs font-semibold bg-green-500 text-white rounded-full">已通關</span>' : ''}
+                `;
+                card.addEventListener('click', () => {
+                    if (isLocked) {
+                        showModal('提示', `你尚未完成前一小節，請先完成該小節以解鎖此單元。`);
+                    } else {
+                        showSection(id);
+                    }
+                });
+                sectionListElement.appendChild(card);
+            });
+        }
+
+        function showSection(id) {
+            currentSectionId = id;
+            const section = sectionsData[id];
+            
+            mainMenu.classList.add('hidden');
+            sectionView.classList.remove('hidden');
+
+            conceptExplanation.innerHTML = section.concept;
+
+            // Select 20 random questions for the quiz
+            const shuffledQuestions = [...section.questions].sort(() => 0.5 - Math.random());
+            currentQuiz = shuffledQuestions.slice(0, 20);
+
+            renderQuizQuestions();
+        }
+
+        function renderQuizQuestions() {
+            quizContainer.innerHTML = '';
+            currentQuiz.forEach((q, index) => {
+                const questionElement = document.createElement('div');
+                questionElement.classList.add('bg-white', 'p-4', 'rounded-lg', 'card-shadow', 'border-2');
+                questionElement.setAttribute('data-q-index', index);
+                let optionsHtml = '';
+                if (q.type === 'input') {
+                    optionsHtml = `<input type="text" data-q-index="${index}" class="mt-2 w-full p-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-400" placeholder="請輸入你的答案">`;
+                } else {
+                    optionsHtml = `<div class="mt-2 space-y-2">`;
+                    q.options.forEach(option => {
+                        optionsHtml += `
+                            <label class="flex items-center space-x-2">
+                                <input type="radio" name="q-${index}" value="${option}" class="form-radio text-blue-500">
+                                <span>${option}</span>
+                            </label>
+                        `;
+                    });
+                    optionsHtml += `</div>`;
+                }
+                questionElement.innerHTML = `
+                    <p class="font-semibold text-gray-800">${index + 1}. ${q.q}</p>
+                    ${optionsHtml}
+                `;
+                quizContainer.appendChild(questionElement);
+            });
+        }
+
+        function checkQuizAnswers() {
+            let correctCount = 0;
+
+            currentQuiz.forEach((q, index) => {
+                const questionElement = document.querySelector(`[data-q-index="${index}"]`);
+                questionElement.classList.remove('border-green-500', 'border-red-500');
+
+                let userAnswer = '';
+                let isCorrect = false;
+
+                if (q.type === 'input') {
+                    const input = questionElement.querySelector('input');
+                    userAnswer = input.value.trim();
+                    isCorrect = userAnswer === q.correct;
+                } else {
+                    const selectedOption = questionElement.querySelector(`input[name="q-${index}"]:checked`);
+                    userAnswer = selectedOption ? selectedOption.value : null;
+                    isCorrect = userAnswer === q.correct;
+                }
+                
+                if (isCorrect) {
+                    correctCount++;
+                    questionElement.classList.add('border-green-500');
+                } else {
+                    questionElement.classList.add('border-red-500');
+                }
+            });
+
+            let message = `測驗完成！你答對了 ${correctCount} 題。`;
+            let title = '測驗結果';
+            
+            // Check for section completion
+            const nextSectionId = getNextSectionId(currentSectionId);
+            const isCompleted = correctCount === currentQuiz.length;
+
+            if (isCompleted) {
+                // Mark this section as completed
+                if (!userData.quizHistory) { userData.quizHistory = {}; }
+                userData.quizHistory[currentSectionId] = true;
+
+                if (nextSectionId) {
+                    // Automatically add the next section to unlockedSections
+                    if (!userData.unlockedSections.includes(nextSectionId)) {
+                        userData.unlockedSections.push(nextSectionId);
+                        message += `\n恭喜！你已通關本小節，下一個小節已解鎖！`;
+                    }
+                } else {
+                    message += `\n太棒了！你已通關本單元所有小節！`;
+                }
+            } else {
+                message += `\n請再接再厲，必須全對才能解鎖下一關喔！`;
+            }
+
+            saveUserData();
+            showModal(title, message);
+        }
+
+        function getNextSectionId(currentId) {
+            const sectionKeys = Object.keys(sectionsData);
+            const currentIndex = sectionKeys.indexOf(currentId);
+            if (currentIndex !== -1 && currentIndex < sectionKeys.length - 1) {
+                return sectionKeys[currentIndex + 1];
+            }
+            return null;
+        }
+
+        function showModal(title, message) {
+            modalTitle.textContent = title;
+            modalMessage.textContent = message;
+            modal.classList.remove('hidden');
+            modal.classList.add('flex');
+        }
+
+        function hideModal() {
+            modal.classList.add('hidden');
+            modal.classList.remove('flex');
+        }
+
+        // Firebase Functions
+        function startDataListener(uid) {
+            const userDocRef = doc(db, `artifacts/${appId}/users/${uid}/math_progress`, 'user_data');
+            
+            // onSnapshot provides real-time updates
+            onSnapshot(userDocRef, (docSnap) => {
+                if (docSnap.exists()) {
+                    // Data exists, update userData and render UI
+                    const data = docSnap.data();
+                    // Ensure unlockedSections and quizHistory are always present
+                    userData.unlockedSections = data.unlockedSections || ['section1'];
+                    userData.quizHistory = data.quizHistory || {};
+                    console.log("User data loaded/updated:", userData);
+                } else {
+                    // No data, create a new document with initial data
+                    console.log("No user data found, creating new document.");
+                    setDoc(userDocRef, userData).catch(error => console.error("Error creating document:", error));
+                }
+                // Render UI after data is loaded for the first time
+                renderMainMenu();
+                loadingSpinner.classList.add('hidden');
+            }, (error) => {
+                console.error("Error listening to user data:", error);
+                loadingSpinner.classList.add('hidden');
+                showModal('錯誤', '載入資料失敗，請稍後再試。');
+            });
+        }
+
+        async function saveUserData() {
+            try {
+                const userDocRef = doc(db, `artifacts/${appId}/users/${userId}/math_progress`, 'user_data');
+                await setDoc(userDocRef, userData);
+                console.log("User data saved successfully.");
+            } catch (error) {
+                console.error("Error saving user data:", error);
+                showModal('錯誤', '儲存資料失敗，請稍後再試。');
+            }
+        }
+
+        // Event Listeners
+        submitQuizBtn.addEventListener('click', checkQuizAnswers);
+        backToMenuBtn.addEventListener('click', renderMainMenu);
+        modalCloseBtn.addEventListener('click', hideModal);
+
+        // Initialization
+        window.onload = function() {
+            try {
+                app = initializeApp(firebaseConfig);
+                auth = getAuth(app);
+                db = getFirestore(app);
+
+                onAuthStateChanged(auth, async (user) => {
+                    if (user) {
+                        userId = user.uid;
+                        startDataListener(userId);
+                    } else {
+                        // Not signed in, sign in anonymously or with custom token
+                        if (initialAuthToken) {
+                             await signInWithCustomToken(auth, initialAuthToken);
+                        } else {
+                             await signInAnonymously(auth);
+                        }
+                    }
+                });
+
+            } catch (error) {
+                console.error("Firebase initialization or authentication failed:", error);
+                loadingSpinner.classList.add('hidden');
+                showModal('錯誤', '初始化應用程式失敗。');
+            }
+        };
+    </script>
+</body>
+</html>
